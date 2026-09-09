@@ -1,0 +1,138 @@
+import streamlit as st
+import random
+
+# 페이지 설정
+st.set_page_config(page_title="Streamlit 사격 게임", page_icon="🎯", layout="centered")
+
+# -----------------------------------------------------------------------------
+# 세션 상태(Session State) 초기화
+# -----------------------------------------------------------------------------
+if 'score' not in st.session_state:
+    st.session_state.score = 0
+if 'target_pos' not in st.session_state:
+    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
+if 'message' not in st.session_state:
+    st.session_state.message = "🎯 게임을 시작하세요!"
+if 'trigger_shot' not in st.session_state:
+    st.session_state.trigger_shot = False
+
+# -----------------------------------------------------------------------------
+# 게임 로직 함수
+# -----------------------------------------------------------------------------
+def shoot(row, col):
+    """사격 로직 처리"""
+    st.session_state.trigger_shot = True  # 발사 효과 플래그 활성화
+
+    if (row, col) == st.session_state.target_pos:
+        st.session_state.score += 10
+        st.session_state.message = f"🎯 **명중!** (+10점) [위치: {row+1}행 {col+1}열]"
+    else:
+        # 최소 점수를 0점으로 제한 (max(0, ...))
+        st.session_state.score = max(0, st.session_state.score - 5)
+        st.session_state.message = f"❌ **빗나갔습니다!** (-5점) [클릭: {row+1}행 {col+1}열]"
+
+    # 과녁 위치 무작위 재배치
+    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
+
+def reset_game():
+    """게임 리셋"""
+    st.session_state.score = 0
+    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
+    st.session_state.message = "🔄 게임이 초기화되었습니다."
+    st.session_state.trigger_shot = False
+
+# -----------------------------------------------------------------------------
+# HTML/CSS 기반 발사 효과 및 시각 디자인
+# -----------------------------------------------------------------------------
+st.markdown("""
+    <style>
+    /* 하단 권총/총 이미지 및 발사 플래시 CSS */
+    .gun-container {
+        text-align: center;
+        margin-top: -10px;
+        margin-bottom: 20px;
+    }
+    .gun-img {
+        font-size: 80px;
+        transition: transform 0.05s ease-in-out;
+    }
+    .recoil {
+        animation: recoil-anim 0.15s ease-in-out;
+    }
+    @keyframes recoil-anim {
+        0% { transform: translateY(0px) rotate(0deg); }
+        50% { transform: translateY(-15px) rotate(-15deg); }
+        100% { transform: translateY(0px) rotate(0deg); }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# UI 구성
+# -----------------------------------------------------------------------------
+st.title("🔫 Streamlit 타겟 슈팅 게임")
+st.write("과녁(🎯)을 노려 격발하세요! **점수는 0점 밑으로 내려가지 않습니다.**")
+
+# 사이드바 설정
+st.sidebar.header("📊 게임 스탯")
+st.sidebar.metric(label="현재 점수", value=f"{st.session_state.score} 점")
+
+if st.sidebar.button("🔄 게임 리셋", use_container_width=True):
+    reset_game()
+    st.rerun()
+
+# 점수/결과 안내창
+if "명중" in st.session_state.message:
+    st.success(st.session_state.message)
+elif "빗나갔습니다" in st.session_state.message:
+    st.error(st.session_state.message)
+else:
+    st.info(st.session_state.message)
+
+# 발사 효과음 및 반동 애니메이션 처리
+if st.session_state.trigger_shot:
+    # 사격 사운드 효과 (무료 오픈 사운드 웹 오디오 재생)
+    audio_html = """
+        <audio autoplay style="display:none;">
+            <source src="https://assets.mixkit.co/active_storage/sfx/212/212-preview.mp3" type="audio/mp3">
+        </audio>
+    """
+    st.components.v1.html(audio_html, height=0)
+    
+    # 사격 플래시 & 총 반동 디스플레이
+    st.markdown("""
+        <div class="gun-container">
+            <span class="gun-img recoil">💥🔫</span>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 효과 실행 후 플래그 해제
+    st.session_state.trigger_shot = False
+else:
+    # 기본 대기 상태의 총
+    st.markdown("""
+        <div class="gun-container">
+            <span class="gun-img">🔫</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.write("---")
+
+# 5x5 과녁 판 생성
+GRID_SIZE = 5
+
+for r in range(GRID_SIZE):
+    cols = st.columns(GRID_SIZE)
+    for c in range(GRID_SIZE):
+        is_target = (r, c) == st.session_state.target_pos
+        label = "🎯" if is_target else "⬛"
+        
+        cols[c].button(
+            label, 
+            key=f"btn_{r}_{c}", 
+            on_click=shoot, 
+            args=(r, c),
+            use_container_width=True
+        )
+
+st.write("---")
