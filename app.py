@@ -1,138 +1,136 @@
 import streamlit as st
+import time
 import random
 
-# 페이지 설정
-st.set_page_config(page_title="Streamlit 사격 게임", page_icon="🎯", layout="centered")
+# 페이지 기본 설정
+st.set_page_config(page_title="스피드 상식 퀴즈", page_icon="🧠", layout="centered")
 
 # -----------------------------------------------------------------------------
-# 세션 상태(Session State) 초기화
+# 퀴즈 데이터베이스 (카테고리 및 난이도별)
 # -----------------------------------------------------------------------------
+QUIZ_BANK = {
+    "일반상식": {
+        "쉬움": [
+            {"q": "세계에서 가장 큰 바다는 어디일까요?", "options": ["태평양", "대서양", "인도양", "북극해"], "a": "태평양"},
+            {"q": "대한민국의 수도는 어디일까요?", "options": ["부산", "서울", "인천", "대구"], "a": "서울"},
+        ],
+        "보통": [
+            {"q": "지구에서 가장 넓은 면적을 가진 국가의 이름은?", "options": ["캐나다", "중국", "미국", "러시아"], "a": "러시아"},
+            {"q": "노벨 평화상이 수여되는 도시는 어디일까요?", "options": ["스톡홀름", "오슬로", "제네바", "런던"], "a": "오슬로"},
+        ]
+    },
+    "과학/IT": {
+        "쉬움": [
+            {"q": "물 분자를 이루는 원소 중 가장 개수가 많은 것은?", "options": ["수소", "산소", "탄소", "질소"], "a": "수소"},
+            {"q": "지구 태양계에서 가장 큰 행성은 무엇일까요?", "options": ["토성", "목성", "천왕성", "해왕성"], "a": "목성"},
+        ],
+        "보통": [
+            {"q": "광합성을 할 때 식물이 흡수하는 기체는?", "options": ["산소", "이산화탄소", "질소", "수소"], "a": "이산화탄소"},
+            {"q": "컴퓨터의 핵심 연산 장치를 뜻하는 약어는?", "options": ["RAM", "GPU", "CPU", "HDD"], "a": "CPU"},
+        ]
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 세션 상태 초기화
+# -----------------------------------------------------------------------------
+if 'game_status' not in st.session_state:
+    st.session_state.game_status = 'ready'  # 'ready', 'playing', 'ended'
 if 'score' not in st.session_state:
     st.session_state.score = 0
-if 'target_pos' not in st.session_state:
-    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
-if 'message' not in st.session_state:
-    st.session_state.message = "🎯 게임을 시작하세요!"
-if 'trigger_shot' not in st.session_state:
-    st.session_state.trigger_shot = False
+if 'combo' not in st.session_state:
+    st.session_state.combo = 0
+if 'current_idx' not in st.session_state:
+    st.session_state.current_idx = 0
+if 'questions' not in st.session_state:
+    st.session_state.questions = []
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = 0
 
 # -----------------------------------------------------------------------------
-# 게임 로직 함수
+# 게임 제어 함수
 # -----------------------------------------------------------------------------
-def shoot(row, col):
-    """사격 로직 처리"""
-    st.session_state.trigger_shot = True  # 발사 효과 플래그 활성화
-
-    if (row, col) == st.session_state.target_pos:
-        st.session_state.score += 10
-        st.session_state.message = f"🎯 **명중!** (+10점) [위치: {row+1}행 {col+1}열]"
-    else:
-        # 최소 점수를 0점으로 제한 (max(0, ...))
-        st.session_state.score = max(0, st.session_state.score - 5)
-        st.session_state.message = f"❌ **빗나갔습니다!** (-5점) [클릭: {row+1}행 {col+1}열]"
-
-    # 과녁 위치 무작위 재배치
-    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
-
-def reset_game():
-    """게임 리셋"""
+def start_game(category, difficulty):
+    st.session_state.questions = random.sample(
+        QUIZ_BANK[category][difficulty], 
+        len(QUIZ_BANK[category][difficulty])
+    )
     st.session_state.score = 0
-    st.session_state.target_pos = (random.randint(0, 4), random.randint(0, 4))
-    st.session_state.message = "🔄 게임이 초기화되었습니다."
-    st.session_state.trigger_shot = False
+    st.session_state.combo = 0
+    st.session_state.current_idx = 0
+    st.session_state.start_time = time.time()
+    st.session_state.game_status = 'playing'
+
+def submit_answer(user_answer, correct_answer):
+    if user_answer == correct_answer:
+        st.session_state.combo += 1
+        # 연속 정답(콤보) 가산점 계산
+        points = 100 + (st.session_state.combo * 20)
+        st.session_state.score += points
+        st.toast(f"⭕ 정답입니다! (+{points}점, {st.session_state.combo}연속!)", icon="🎉")
+    else:
+        st.session_state.combo = 0
+        st.toast(f"❌ 오답입니다! (정답: {correct_answer})", icon="⚠️")
+
+    st.session_state.current_idx += 1
+    if st.session_state.current_idx >= len(st.session_state.questions):
+        st.session_state.game_status = 'ended'
 
 # -----------------------------------------------------------------------------
-# HTML/CSS 기반 발사 효과 및 시각 디자인
+# UI 화면 구성
 # -----------------------------------------------------------------------------
-st.markdown("""
-    <style>
-    /* 하단 권총/총 이미지 및 발사 플래시 CSS */
-    .gun-container {
-        text-align: center;
-        margin-top: -10px;
-        margin-bottom: 20px;
-    }
-    .gun-img {
-        font-size: 80px;
-        transition: transform 0.05s ease-in-out;
-    }
-    .recoil {
-        animation: recoil-anim 0.15s ease-in-out;
-    }
-    @keyframes recoil-anim {
-        0% { transform: translateY(0px) rotate(0deg); }
-        50% { transform: translateY(-15px) rotate(-15deg); }
-        100% { transform: translateY(0px) rotate(0deg); }
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.title("🧠 스피드 상식 퀴즈")
 
-# -----------------------------------------------------------------------------
-# UI 구성
-# -----------------------------------------------------------------------------
-st.title("🔫 Streamlit 타겟 슈팅 게임")
-st.write("과녁(🎯)을 노려 격발하세요! **점수는 0점 밑으로 내려가지 않습니다.**")
+# 1. 게임 시작 대기 화면
+if st.session_state.game_status == 'ready':
+    st.subheader("⚙️ 게임 설정")
+    selected_cat = st.selectbox("카테고리 선택", list(QUIZ_BANK.keys()))
+    selected_diff = st.radio("난이도 선택", ["쉬움", "보통"], horizontal=True)
+    time_limit = st.slider("제한시간 (초)", 10, 60, 30)
 
-# 사이드바 설정
-st.sidebar.header("📊 게임 스탯")
-st.sidebar.metric(label="현재 점수", value=f"{st.session_state.score} 점")
+    if st.button("🚀 퀴즈 시작", use_container_width=True, type="primary"):
+        st.session_state.time_limit = time_limit
+        start_game(selected_cat, selected_diff)
+        st.rerun()
 
-if st.sidebar.button("🔄 게임 리셋", use_container_width=True):
-    reset_game()
-    st.rerun()
+# 2. 게임 진행 화면
+elif st.session_state.game_status == 'playing':
+    # 제한시간 체크
+    elapsed_time = time.time() - st.session_state.start_time
+    remaining_time = max(0, int(st.session_state.time_limit - elapsed_time))
 
-# 점수/결과 안내창
-if "명중" in st.session_state.message:
-    st.success(st.session_state.message)
-elif "빗나갔습니다" in st.session_state.message:
-    st.error(st.session_state.message)
-else:
-    st.info(st.session_state.message)
+    if remaining_time <= 0:
+        st.session_state.game_status = 'ended'
+        st.rerun()
 
-# 발사 효과음 및 반동 애니메이션 처리
-if st.session_state.trigger_shot:
-    # 사격 사운드 효과 (무료 오픈 사운드 웹 오디오 재생)
-    audio_html = """
-        <audio autoplay style="display:none;">
-            <source src="https://assets.mixkit.co/active_storage/sfx/212/212-preview.mp3" type="audio/mp3">
-        </audio>
-    """
-    st.components.v1.html(audio_html, height=0)
-    
-    # 사격 플래시 & 총 반동 디스플레이
-    st.markdown("""
-        <div class="gun-container">
-            <span class="gun-img recoil">💥🔫</span>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # 효과 실행 후 플래그 해제
-    st.session_state.trigger_shot = False
-else:
-    # 기본 대기 상태의 총
-    st.markdown("""
-        <div class="gun-container">
-            <span class="gun-img">🔫</span>
-        </div>
-    """, unsafe_allow_html=True)
+    # 상단 대시보드
+    col1, col2, col3 = st.columns(3)
+    col1.metric("⏱️ 남은 시간", f"{remaining_time}초")
+    col2.metric("🏆 현재 점수", f"{st.session_state.score}점")
+    col3.metric("🔥 연속 정답", f"{st.session_state.combo}회")
 
-st.write("---")
+    st.progress(remaining_time / st.session_state.time_limit)
+    st.write("---")
 
-# 5x5 과녁 판 생성
-GRID_SIZE = 5
+    # 현재 문제 출력
+    q_data = st.session_state.questions[st.session_state.current_idx]
+    st.markdown(f"### Q{st.session_state.current_idx + 1}. {q_data['q']}")
 
-for r in range(GRID_SIZE):
-    cols = st.columns(GRID_SIZE)
-    for c in range(GRID_SIZE):
-        is_target = (r, c) == st.session_state.target_pos
-        label = "🎯" if is_target else "⬛"
-        
-        cols[c].button(
-            label, 
-            key=f"btn_{r}_{c}", 
-            on_click=shoot, 
-            args=(r, c),
-            use_container_width=True
-        )
+    # 보기 버튼 배치
+    cols = st.columns(2)
+    for idx, option in enumerate(q_data['options']):
+        with cols[idx % 2]:
+            if st.button(option, key=f"opt_{idx}", use_container_width=True):
+                submit_answer(option, q_data['a'])
+                st.rerun()
 
-st.write("---")
+# 3. 게임 종료 화면
+elif st.session_state.game_status == 'ended':
+    st.balloons()
+    st.subheader("🏁 게임 종료!")
+    st.metric(label="최종 점수", value=f"{st.session_state.score} 점")
+
+    st.write("---")
+    if st.button("🔄 다시 도전하기", use_container_width=True, type="primary"):
+        st.session_state.game_status = 'ready'
+        st.rerun()
