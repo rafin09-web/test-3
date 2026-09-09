@@ -59,7 +59,7 @@ QUIZ_BANK = {
 # 세션 상태 초기화
 # -----------------------------------------------------------------------------
 if 'game_status' not in st.session_state:
-    st.session_state.game_status = 'ready'  # 'ready', 'playing', 'ended'
+    st.session_state.game_status = 'ready'
 if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'combo' not in st.session_state:
@@ -68,22 +68,43 @@ if 'current_idx' not in st.session_state:
     st.session_state.current_idx = 0
 if 'questions' not in st.session_state:
     st.session_state.questions = []
-if 'start_time' not in st.session_state:
-    st.session_state.start_time = 0
-if 'time_limit' not in st.session_state:
-    st.session_state.time_limit = 30
+if 'question_start_time' not in st.session_state:
+    st.session_state.question_start_time = 0
+if 'time_per_question' not in st.session_state:
+    st.session_state.time_per_question = 10
 
 # -----------------------------------------------------------------------------
 # 게임 제어 함수
 # -----------------------------------------------------------------------------
 def start_game(category, difficulty):
     pool = QUIZ_BANK[category][difficulty]
-    st.session_state.questions = random.sample(pool, len(pool))
+    
+    # 1. 문제 리스트 복사 및 문제 순서 셔플
+    selected_questions = random.sample(pool, len(pool))
+    
+    # 2. 각 문제의 보기(options) 순서도 무작위로 섞음 (원본 데이터 훼손 방지를 위해 깊은 복사 처리)
+    shuffled_questions = []
+    for item in selected_questions:
+        q_copy = item.copy()
+        opts = list(q_copy["options"])
+        random.shuffle(opts)  # 보기 무작위 셔플
+        q_copy["shuffled_options"] = opts
+        shuffled_questions.append(q_copy)
+
+    st.session_state.questions = shuffled_questions
     st.session_state.score = 0
     st.session_state.combo = 0
     st.session_state.current_idx = 0
-    st.session_state.start_time = time.time()
+    st.session_state.question_start_time = time.time()
     st.session_state.game_status = 'playing'
+
+def next_question():
+    """다음 문제로 넘어가며 문제별 타이머 초기화"""
+    st.session_state.current_idx += 1
+    if st.session_state.current_idx >= len(st.session_state.questions):
+        st.session_state.game_status = 'ended'
+    else:
+        st.session_state.question_start_time = time.time()
 
 def submit_answer(user_answer, correct_answer):
     if user_answer == correct_answer:
@@ -93,13 +114,17 @@ def submit_answer(user_answer, correct_answer):
         st.toast(f"⭕ 정답입니다! (+{points}점, {st.session_state.combo}연속!)", icon="🎉")
     else:
         st.session_state.combo = 0
-        # 틀렸을 때 감점 (-30점), 최소 점수는 0점으로 보장
         st.session_state.score = max(0, st.session_state.score - 30)
         st.toast(f"❌ 오답입니다! (-30점) [정답: {correct_answer}]", icon="⚠️")
 
-    st.session_state.current_idx += 1
-    if st.session_state.current_idx >= len(st.session_state.questions):
-        st.session_state.game_status = 'ended'
+    next_question()
+
+def handle_timeout():
+    """제한시간 초과 시 처리"""
+    st.session_state.combo = 0
+    st.session_state.score = max(0, st.session_state.score - 30)
+    st.toast("⏰ 시간 초과! (-30점)", icon="⌛")
+    next_question()
 
 # -----------------------------------------------------------------------------
 # UI 화면 구성
@@ -111,21 +136,20 @@ if st.session_state.game_status == 'ready':
     st.subheader("⚙️ 게임 설정")
     selected_cat = st.selectbox("카테고리 선택", list(QUIZ_BANK.keys()))
     selected_diff = st.radio("난이도 선택", ["쉬움", "보통"], horizontal=True)
-    time_limit = st.slider("제한시간 (초)", 10, 60, 30)
+    time_per_question = st.slider("문제당 제한시간 (초)", 3, 30, 10)
 
     if st.button("🚀 퀴즈 시작", use_container_width=True, type="primary"):
-        st.session_state.time_limit = time_limit
+        st.session_state.time_per_question = time_per_question
         start_game(selected_cat, selected_diff)
         st.rerun()
 
 # 2. 게임 진행 화면
 elif st.session_state.game_status == 'playing':
-    # 제한시간 체크
-    elapsed_time = time.time() - st.session_state.start_time
-    remaining_time = max(0, int(st.session_state.time_limit - elapsed_time))
+    elapsed_time = time.time() - st.session_state.question_start_time
+    remaining_time = max(0, int(st.session_state.time_per_question - elapsed_time))
 
-    if remaining_time <= 0 or st.session_state.current_idx >= len(st.session_state.questions):
-        st.session_state.game_status = 'ended'
+    if elapsed_time >= st.session_state.time_per_question:
+        handle_timeout()
         st.rerun()
 
     # 스탯 대시보드
@@ -134,25 +158,24 @@ elif st.session_state.game_status == 'playing':
     col2.metric("🏆 현재 점수", f"{st.session_state.score}점")
     col3.metric("🔥 연속 정답", f"{st.session_state.combo}회")
 
-    # 실시간 진행바 (Progress Bar)
-    progress_val = remaining_time / st.session_state.time_limit
+    # 실시간 진행바
+    progress_val = max(0.0, min(1.0, remaining_time / st.session_state.time_per_question))
     st.progress(progress_val)
     
     st.write("---")
 
-    # 문제 출력
+    # 문제 및 무작위로 섞인 보기 출력
     q_data = st.session_state.questions[st.session_state.current_idx]
-    st.markdown(f"### Q{st.session_state.current_idx + 1}. {q_data['q']}")
+    st.markdown(f"### Q{st.session_state.current_idx + 1}/{len(st.session_state.questions)}. {q_data['q']}")
 
-    # 보기 버튼
+    # 셔플된 보기(shuffled_options) 사용
     cols = st.columns(2)
-    for idx, option in enumerate(q_data['options']):
+    for idx, option in enumerate(q_data['shuffled_options']):
         with cols[idx % 2]:
-            if st.button(option, key=f"opt_{idx}", use_container_width=True):
+            if st.button(option, key=f"opt_{st.session_state.current_idx}_{idx}", use_container_width=True):
                 submit_answer(option, q_data['a'])
                 st.rerun()
 
-    # 타이머 실시간 자동 갱신 (1초 후 rerun)
     time.sleep(1)
     st.rerun()
 
